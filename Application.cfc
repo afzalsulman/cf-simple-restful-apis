@@ -1,8 +1,9 @@
 component {
 
-  // Application properties
-  this.name = hash( getCurrentTemplatePath() );
-  this.applicationTimeout = createTimeSpan(0,1,0,0);
+  // application properties
+  // this.name = hash( getCurrentTemplatePath() );
+  this.name = 'cf-restful-apis';
+  this.applicationTimeout = createTimeSpan(0,0,0,20);
   this.sessionManagement = true;
   this.sessionTimeout = createTimeSpan(0,1,0,0);
   this.setClientCookies = true;
@@ -25,35 +26,37 @@ component {
     this.datasource = "datasource_prod";
   }
 
-  // this.appRoot = expandPath('/');
-  // this.mappings[ "handlers" ] = "#this.appRoot#handlers\";
+  // mappings
+  // this.mappings[ "models" ] = expandPath('./models');
 
   public boolean function onApplicationStart(){
-    application['isDevelopment'] = false;
-    application['isLocalhost'] = false;
-    application['isProduction'] = true;
+    // global variables
+    application.globalvars.title = "CF Restful APIs";
 
-    var devServerList = "127.0.0.1,localhost,development";
-    if(listFindNoCase(devServerList, cgi.server_name)){
+    // api logs file
+    application.logsFileName = this.name;
+
+    // set environment
+    application.isDevelopment = false;
+    application.isLocalhost = false;
+    application.isProduction = true;
+    var devServers = '127.0.0.1,localhost,development';
+    if(listFindNoCase(devServers, cgi.server_name)){
       if(cgi.server_name EQ '127.0.0.1' OR cgi.server_name EQ 'localhost'){
-        application['isLocalhost'] = true;
+        application.isLocalhost = true;
       }
-      application['isDevelopment'] = true;
-      application['isProduction'] = false;
+      application.isDevelopment = true;
+      application.isProduction = false;
     }
 
-    // remove objects from application scope if exists
-    if(structKeyExists(application, "util")){
-      structDelete(application, "util");
-    }
-    if(structKeyExists(application, "jwt")){
-      structDelete(application, "jwt");
-    }
+    // jar files path
+    application.jarPath = expandPath('includes/libs/');
 
-    // model objects
-    application['util'] = new models.utility( );
-    // modules objects
-    application['jwt'] = new modules.jwt.jwt( );
+    // models objects
+    application.obj.util = new models.utility( );
+    application.obj.user = new models.user( );
+    // libraries objects
+    application.obj.jwt = new includes.libs.jwt.jwt( );
 
     return true;
   }
@@ -61,11 +64,8 @@ component {
   // application end
   public boolean function onApplicationEnd( struct applicationScope ) {
     // Destroy application-cached components
-    if(structKeyExists(arguments.applicationScope, "util")){
-      structDelete(arguments.applicationScope, "util");
-    }
-    if(structKeyExists(arguments.applicationScope, "jwt")){
-      structDelete(arguments.applicationScope, "jwt");
+    if(structKeyExists(arguments.applicationScope, "obj")){
+      structDelete(arguments.applicationScope, "obj");
     }
 
     return true;
@@ -73,17 +73,32 @@ component {
 
   // request start
   public boolean function onRequestStart( string targetPage ){
+    // header settings
+    // cfheader( name="Access-Control-Allow-Origin", value="*" );
+    // allow custom headers
+    // cfheader( name="Access-Control-Allow-Headers", value="Authorization" );
+    // cfheader( name="Access-Control-Allow-Headers", value="UserToken" );
+
     // reinitialize application
-    if(structKeyExists(url, 'reinit') AND url.reinit EQ "dev"){
+    if(
+        (!application.isProduction)
+        || (structKeyExists(url, 'reinit') AND url.reinit EQ "dev")
+    ){
       onApplicationStart();
       componentCacheClear();
       pagePoolClear();
     }
 
+    // create url to use globally
     if(cgi.server_port_secure){
-      request.siteUrl = 'https://' & cgi.http_host & '/';
+      appUrl = 'https://' & cgi.http_host & '/';
     }else{
-      request.siteUrl = 'http://' & cgi.http_host & '/';
+      appUrl = 'http://' & cgi.http_host & '/';
+    }
+    request.appUrl = appUrl;
+    webRoot = listFirst(cgi.script_name,'/') & "/";
+    if(!findNoCase('.cfm', webRoot)){
+      request.appUrl = appUrl&webRoot;
     }
 
     // establish a browser scope to hold client device properties
@@ -111,7 +126,41 @@ component {
     request.cryptAlgorithm = 'AES/CBC/PKCS5Padding'; //Cipher Block Chaining (CBC) mode
     request.cryptEncoding = 'HEX';
 
+    //email setting
+    request.email.noReplyEmail = "noreply@company.com";
+
     return true;
+  }
+
+  public void function onError(required any exception, required string eventName) {
+    // events detail string
+    var eventNameString = " applicationEventName|" & arguments.eventName;
+    if(structKeyExists(url, "event")){
+      eventNameString &= " urlEventName|" & url.event;
+    }
+
+    // create log
+    var logErrorResponse = new models.utility().logErrors(
+        error = arguments.exception, fileName=this.name, eventName=eventNameString
+    );
+
+    var structReturn = {};
+    structReturn['data'] = {};
+    structReturn['messages'] = arrayNew(1);
+    structReturn['error'] = true;
+    structReturn["shouldLogout"] = false;
+
+    if(structKeyExists(application, "isProduction") && !application.isProduction){
+      structReturn.messages.append(logErrorResponse.errorMessageDeveloper);
+    }
+
+    structReturn.messages.append(logErrorResponse.errorMessageUser);
+
+    // serialized the return struct and output it
+    writeOutput(serializeJSON(structReturn));
+    cfheader( statuscode=500 );
+
+    return;
   }
 
 }

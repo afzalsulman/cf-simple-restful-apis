@@ -11,7 +11,7 @@ component{
 	}
 
 	public function index( ) {
-		request.messages = request.messages.append("Welcome to my RESTFul Service");
+		request.structReturn.messages.append("Welcome to my RESTFul Service.");
 	}
 
 }

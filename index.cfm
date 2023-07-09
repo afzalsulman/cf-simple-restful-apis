@@ -1,128 +1,147 @@
 <cfscript>
-  // events to exclude from security check
-  request.excludeEvents = "echo.index,user.login,user.register";
-
   // output setting
   cfcontent( type="application/json" );
-  if(NOT application.isDevelopment){
-    cfsetting( enablecfoutputonly="true" );
-    // cfcontent( type="application/json" );
-  }
-  // header settings for local host
-  if(application.isLocalhost){
-    cfheader( name="Access-Control-Allow-Origin", value="*" );
-    cfheader( name="Access-Control-Allow-Headers", value="Content-Type" )
-    cfheader( name="Access-Control-Allow-Headers", value="Authorization" )
-  }
+  cfsetting( enablecfoutputonly="true" );
 
-  // global variables
-  // these variables are used in response data 
-  request.data = structNew();
-  request.messages = arrayNew(1);
-  request.error = false;
-  request.headerCode = 200;
-
-  // request handler
-  // event
+  // request event handler, get handler name and function from url event
   param name="url.event" default="echo.index";
-  request.handler = listFirst(url.event,'.');
-  request.action = 'index';
-  if(listLen(url.event,'.') EQ 2){
-    request.action = listLast(url.event,'.');
-  }
+  handlerName = listFirst(url.event,'.');
+  handlerFunction = listLast(url.event,'.');
 
   // http request
   httpRequestData = getHttpRequestData();
-  request.userToken = '';
+  // get user token from http headers
+  userToken = '';
   if(structKeyExists(httpRequestData.headers, 'Authorization')){
-    request.userToken = httpRequestData.headers['Authorization'];
+    userToken = httpRequestData.headers['Authorization'];
   }
 
-  request.requestContent = httpRequestData.content;
-
-  // if request is in json format, convert json struct to form struct
-  if(isJSON(request.requestContent)){
-    jsonStruct = deserializeJSON(request.requestContent);
+  // if http request content is in json format,
+  // convert json struct to form struct because form scope is passed to handler component as a argumentCollection
+  jsonStruct = {};
+  if(isJSON(httpRequestData.content)){
+    jsonStruct = deserializeJSON(httpRequestData.content);
     jsonStruct.each(function(key, value) {
-      form['#key#'] = value;
+      form[key] = value;
     });
   }
 
-  try{
+  // global variables used in response structure
+  // request.structReturn = createObject( "java", "java.util.LinkedHashMap" ).init();
+  // request.structReturn['data'] = createObject( "java", "java.util.LinkedHashMap" ).init();
+  request.structReturn = {};
+  request.structReturn['data'] = {};
+  request.structReturn['messages'] = arrayNew(1);
+  request.structReturn['error'] = false;
+  request.structReturn["shouldLogout"] = false;
+  request.headerCode = 200;
 
-    // api security check
-    if(NOT listFindNoCase(request.excludeEvents, url.event)){
-      try{
-        payload = application.jwt.decode(request.userToken, request.cryptKey, 'HS256');
-        if(isStruct(payload)){
-          request.userID = payload.userID;
-          if(NOT isValid("integer", request.userID)){
-            request.messages = request.messages.append("Issue with credentials. Please log out and log in again.");
-            request.error = true;
-          }
-        }
-      }catch(any e){
-        request.error = true;
-        request.messages = request.messages.append(e.message);
+  // api security check using jwt-cfml library
+  // events to exclude from security check
+  excludeEvents = "echo.index,user.login,user.register";
+  if(NOT listFindNoCase(excludeEvents, url.event)){
+    // jwt-cfml
+    // https://github.com/jcberquist/jwt-cfml
+    // This module supports encoding and decoding JSON Web Tokens.
+    payload = application.obj.jwt.decode(userToken, request.cryptKey, 'HS256');
+    if(isStruct(payload)){
+      request.userID = payload.userID;
+      if(NOT isValid("integer", request.userID)){
+        request.structReturn.messages.append("An issue with credentials, please log in again.");
+        request.structReturn.error = true;
+        request.structReturn.shouldLogout = true;
       }
     }
-
-    // form fields validation
-    if(!request.error){
-      typeList = 'date,boolean,numeric,uuid';
-      handlerMetaData = getComponentMetadata('handlers.'&request.handler);
-      functions = handlerMetaData.functions;
-      for (f = 1; f <= arrayLen(functions); f++) {
-        functionName = functions[f].name;
-        if(functionName == request.action){
-          parameters = functions[f].parameters;
-          for (p = 1; p <= arrayLen(parameters); p++) {
-            parameterName = parameters[p].name;
-            parameterRequired = parameters[p].required;
-            parameterType = parameters[p].type;
-            if(
-              parameterRequired
-              && structKeyExists(form, "#parameterName#")
-              && len(trim(form[parameterName])) == 0
-            ){
-              request.messages = request.messages.append("#parameterName# is required field!");
-              request.error = true;
-            }else if(
-              parameterRequired
-              && structKeyExists(form, "#parameterName#")
-              && len(trim(form[parameterName]))
-              && listFindNoCase(typeList, parameterType)
-              && !isValid("#parameterType#", form[parameterName])
-            ){
-              request.messages = request.messages.append("#parameterName# should be #parameterType#");
-              request.error = true;
-            }else if(!structKeyExists(form, "#parameterName#")){
-              request.messages = request.messages.append("Parameter #parameterName# is missing!");
-              request.error = true;
-            }
-          }
-          break;
-        }
-      }
-    }
-
-    if(!request.error){
-      // create the handler object
-      createObjHandler = createObject("component", "handlers/#request.handler#").init();
-      // call specific function of handler for each request
-      objHandler = createObjHandler[request.action](argumentCollection=form);
-    }
-
-  }catch(any e){
-    // errorMessage = e.message & " " & e.detail & " " & e.tagcontext[1].LINE;
-    errorMessage = e.message;
-    request.messages = request.messages.append(errorMessage);
-    request.error = true;
   }
 
-  // call response handler
-  // get the content of each request and create the struct
-  request.dataStructure = application.util.setDataStruct(request.data, request.messages, request.error);
-  writeOutput(serializeJSON(request.dataStructure));
+  // form fields validation
+  typeList = 'date,boolean,numeric,uuid';
+  handlerMetaData = getComponentMetadata('handlers.'&handlerName);
+  functions = handlerMetaData.functions;
+
+  // validations for required fields, missing parameters
+  /* for (f = 1; f <= arrayLen(functions); f++) {
+    functionName = functions[f].name;
+    if(functionName == handlerFunction){
+      parameters = functions[f].parameters;
+      for (p = 1; p <= arrayLen(parameters); p++) {
+        parameterName = parameters[p].name;
+        parameterRequired = parameters[p].required;
+        parameterType = parameters[p].type;
+        if( // required field condition
+          parameterRequired
+          && structKeyExists(form, "#parameterName#")
+          && len(trim(form[parameterName])) == 0
+        ){
+          request.structReturn.messages.append("#parameterName# is required field!");
+          request.structReturn.error = true;
+        }else if( // required field with parameter type condition
+          parameterRequired
+          && structKeyExists(form, "#parameterName#")
+          && len(trim(form[parameterName]))
+          && listFindNoCase(typeList, parameterType)
+          && !isValid("#parameterType#", form[parameterName])
+        ){
+          request.structReturn.messages.append("#parameterName# should be #parameterType#");
+          request.structReturn.error = true;
+        }else if( // !required field with parameter type condition
+          structKeyExists(form, "#parameterName#")
+          && listFindNoCase(typeList, parameterType)
+          && !isValid("#parameterType#", form[parameterName])
+        ){
+          request.structReturn.messages.append("#parameterName# should be #parameterType#");
+          request.structReturn.error = true;
+        }else if( // missing parameter condition
+          !structKeyExists(form, "#parameterName#")
+        ){
+          request.structReturn.messages.append("Parameter #parameterName# is missing!");
+          request.structReturn.error = true;
+        }
+      }
+      break;
+    }
+  } */
+
+  // handlerFunction argument validations before calling or passing form scope to the function
+  // * required fields
+  // check if the field is required and present in the form scope and should not be empty
+  // * missing parameters
+  // check if a parameter is missing in the form scope
+  for (f = 1; f <= arrayLen(functions); f++) {
+    functionName = functions[f].name;
+    if(functionName == handlerFunction){
+      parameters = functions[f].parameters;
+      for (p = 1; p <= arrayLen(parameters); p++) {
+        parameterName = parameters[p].name;
+        parameterRequired = parameters[p].required;
+        parameterType = parameters[p].type;
+        if( // required field condition
+          parameterRequired
+          && structKeyExists(form, "#parameterName#")
+          && len(trim(form[parameterName])) == 0
+        ){
+          request.structReturn.messages.append("#parameterName# is required field!");
+          request.structReturn.error = true;
+        }else if( // missing parameter condition
+          !structKeyExists(form, "#parameterName#")
+        ){
+          request.structReturn.messages.append("Parameter #parameterName# is missing!");
+          request.structReturn.error = true;
+        }
+      }
+      break;
+    }
+  }
+
+  // form validations succeed, complete the request
+  if(!request.structReturn.error){
+    // create the handler cfc component object
+    createObjHandler = createObject("component", "handlers/#handlerName#").init();
+    // call specific function of handler for each request
+    createObjHandler[handlerFunction](argumentCollection=form);
+  }
+
+  // serialized the return struct and output it
+  writeOutput(serializeJSON(request.structReturn));
   cfheader( statuscode=request.headerCode );
 </cfscript>

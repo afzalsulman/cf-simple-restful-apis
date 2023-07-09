@@ -52,6 +52,7 @@ component {
         return derEncoded;
     }
 
+
     /**
     * The SEQUENCE encoding is simply a tag set to the byte value 30, the
     * length encoding and then the concatenation of the two INTEGER

@@ -7,8 +7,13 @@ component{
    * Constructor
   **/
   user function init( ) {
-    userService = new models.user();
-    utilService = application.util;
+    // can use application-cached model components
+    userService = application.obj.user;
+    utilService = application.obj.util;
+
+    // or can create models new objects and use them
+    // userService = new models.user();
+    // utilService = new models.utility();
     return this;
   }
 
@@ -24,26 +29,26 @@ component{
   ) {
 
     if(NOT isValid("email", arguments.email)){
-      request.messages = request.messages.append("Please enter an email.");
-      request.error = true;
+      request.structReturn.messages.append("Please enter an email.");
+      request.structReturn.error = true;
     }
 
     if(len(trim(arguments.password)) LT 6){
-      request.messages = request.messages.append("Password should be at least 6 characters.");
-      request.error = true;
+      request.structReturn.messages.append("Password should be at least 6 characters.");
+      request.structReturn.error = true;
     }
 
-    if(NOT request.error){
+    if(NOT request.structReturn.error){
 
-      var token = application.jwt.encode(
+      var token = application.obj.jwt.encode(
         { userID=1
         }, request.cryptKey, 'HS256'
       );
 
-      request.data['token'] = token;
-      request.data['username'] = arguments.name;
-      request.data['useremail'] = arguments.email;
-      request.messages = request.messages.append("You are successfully registered");
+      request.structReturn.data['token'] = token;
+      request.structReturn.data['username'] = arguments.name;
+      request.structReturn.data['useremail'] = arguments.email;
+      request.structReturn.messages.append("You are successfully registered");
 
     }else{
       request.headerCode = 422;
@@ -61,37 +66,37 @@ component{
   ) {
 
     if(NOT isValid("email", arguments.email)){
-      request.messages = request.messages.append("Please enter an email.");
-      request.error = true;
+      request.structReturn.messages.append("Please enter an email.");
+      request.structReturn.error = true;
     }
 
     if(len(trim(arguments.password)) LT 6){
-      request.messages = request.messages.append("Password should be at least 6 characters.");
-      request.error = true;
+      request.structReturn.messages.append("Password should be at least 6 characters.");
+      request.structReturn.error = true;
     }
 
-    if(NOT request.error){
+    if(NOT request.structReturn.error){
 
       // var qDetails = userService.qGetLoginUser(arguments.email, arguments.password);
       qDetails.recordCount = 1;
       if(qDetails.recordCount){
 
-        var token = application.jwt.encode(
+        var token = application.obj.jwt.encode(
           {
             userID=1
           }
           , request.cryptKey, 'HS256'
         );
-        request.data['token'] = token;
-        request.data['useremail'] = arguments.email;
+        request.structReturn.data['token'] = token;
+        request.structReturn.data['useremail'] = arguments.email;
 
-        request.messages = request.messages.append("You successfully logged in.");
+        request.structReturn.messages.append("You successfully logged in.");
 
         arguments.password = hash(arguments.password, "SHA-256", "UTF-8");
 
       }else{
-        request.messages = request.messages.append("Email or password is wrong.");
-        request.error = true;
+        request.structReturn.messages.append("Email or password is wrong.");
+        request.structReturn.error = true;
       }
 
     }else{
@@ -110,10 +115,10 @@ component{
     // var result = userService.qCustomerSave(arguments.name, arguments.email, arguments.phone);
     var result = 1;
     if(result){
-      request.data['customerID'] = result;
-      request.messages = request.messages.append("Successfully saved.");
+      request.structReturn.data['customerID'] = result;
+      request.structReturn.messages.append("Successfully saved.");
     }else{
-      request.messages = request.messages.append("Please try again could not save data.");
+      request.structReturn.messages.append("Please try again could not save data.");
     }
 
   }
@@ -127,16 +132,16 @@ component{
 
     // get data
     // var qtotalRecords = userService.qCustomerSearch(searchText=arguments.searchText);
-    // request.data['pagination'] = utilService.paginationStruct(arguments.maxRows,arguments.page,qtotalRecords.recordCount);
-    // var qCustomers = userService.qCustomerSearch(arguments.searchText, arguments.maxRows, request.data.pagination.offset);
+    // request.structReturn.data['pagination'] = utilService.paginationStruct(arguments.maxRows,arguments.page,qtotalRecords.recordCount);
+    // var qCustomers = userService.qCustomerSearch(arguments.searchText, arguments.maxRows, request.structReturn.data.pagination.offset);
     // var aResult = utilService.queryToArray(qCustomers,'id,name,email,phone');
-    // request.data['customers'] = aResult;
+    // request.structReturn.data['customers'] = aResult;
 
     var qtotalRecords = queryNew('');
-    request.data['pagination'] = utilService.paginationStruct(arguments.maxRows,arguments.page,qtotalRecords.recordCount);
+    request.structReturn['pagination'] = utilService.paginationStruct(arguments.maxRows,arguments.page,qtotalRecords.recordCount);
     var qCustomers = queryNew('id,name,email,phone');
     var aResult = utilService.queryToArray(qCustomers,'id,name,email,phone');
-    request.data['customers'] = aResult;
+    request.structReturn.data = aResult;
 
   }
 
@@ -152,11 +157,11 @@ component{
     // var result = userService.qCustomerGet(arguments.id);
     result.recordCount = 1;
     if(result.recordCount){
-      request.data['name'] = 'result.name';
-      request.data['email'] = 'result.email';
-      request.data['phone'] = 'result.phone';
+      request.structReturn.data['name'] = 'result.name';
+      request.structReturn.data['email'] = 'result.email';
+      request.structReturn.data['phone'] = 'result.phone';
     }else{
-      request.messages = request.messages.append("Please try again could not find data.");
+      request.structReturn.messages.append("Please try again could not find data.");
     }
   }
 
@@ -173,9 +178,9 @@ component{
     // );
     result = 1;
     if(result){
-      request.messages = request.messages.append("Successfully updated.");
+      request.structReturn.messages.append("Successfully updated.");
     }else{
-      request.messages = request.messages.append("Please try again could not save data.");
+      request.structReturn.messages.append("Please try again could not save data.");
     }
   }
 
@@ -187,9 +192,9 @@ component{
     // var result = userService.qCustomerDelete(arguments.id);
     result = 1;
     if(result){
-      request.messages = request.messages.append("Successfully deleted.");
+      request.structReturn.messages.append("Successfully deleted.");
     }else{
-      request.messages = request.messages.append("Please try again could not delete data.");
+      request.structReturn.messages.append("Please try again could not delete data.");
     }
   }
 

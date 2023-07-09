@@ -86,7 +86,6 @@ component{
         create pagination struct
     */
     public function paginationStruct(required numeric maxRowsValue, required numeric pageValue, required numeric totalRecordsValue) {
-
         var maxRows = arguments.maxRowsValue;
         var offset = 0;
         var totalRecords = arguments.totalRecordsValue;
@@ -114,6 +113,58 @@ component{
         returnData['totalRecords'] = totalRecords;
 
         return returnData;
+    }
+
+    /**
+        * https://www.bennadel.com/blog/4302-pretty-printing-json-using-gson-in-lucee-cfml-5-3-9-141.htm
+        * I build the configured GSON object.
+    */
+    public any function buildGson() {
+        // Normally, JSON is output as a single line, which is what makes other formats
+        // like NDJSON (Newline-Delimited JSON) possible. But, for debugging purposes, it
+        // is sometimes nice to see JSON rendered in a multi-line, human-friendly format.
+        // That's what .setPrettyPrinting() is doing here - turning on the human-friendly
+        // output formatting during the serialization process.
+        var gson = createObject( "java", "com.google.gson.GsonBuilder", application.jarPath&'gson-2.9.0.jar' )
+            .init().setPrettyPrinting().create();
+        return( gson );
+    }
+
+    /*
+        write error logs
+    */
+    public struct function logErrors(
+        required struct error, required string fileName, required string eventName
+    ) {
+        var e = arguments.error;
+        // create log error message
+        errorTime = dateFormat(now(),"MMM D at ") & timeFormat(now(),"h:MM:SS tt");
+        errorMessage = "ErrorTime: " & errorTime;
+        errorMessage &= " Event: " & arguments.eventName;
+        errorMessage &= " Type: " & e.type;
+        errorMessage &= " Detail: " & e.detail;
+        errorMessage &= " Message: " & e.message;
+        if(structKeyExists(e,"tagcontext") && arrayLen(e.tagcontext)){
+            errorMessage &= " Template Line: " & e.tagcontext[1].template & " " & e.tagcontext[1].line;
+        }
+
+        if(e.type EQ 'database'){
+            if(structKeyExists(e,"sql")){
+                errorMessage &= " SQL: " & e.sql;
+            }
+            if(structKeyExists(e,"queryerror")){
+                errorMessage &= " QueryError: " & e.queryerror;
+            }
+        }
+
+        // log the error message
+        writeLog(text = errorMessage, type = "error", application = "yes", file = arguments.fileName);
+
+        var structReturn = {};
+        structReturn.errorMessageDeveloper = errorMessage;
+        structReturn.errorMessageUser = "An error occurred, "&e.message&" This event was logged at " & errorTime;
+
+        return structReturn;
     }
 
 }
